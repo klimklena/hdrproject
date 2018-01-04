@@ -9,3 +9,6 @@ python main.py
 
 Libraries required:
 opencv2
+
+Supported image formats:
+.bmp, .dib, .jpeg, .jpg, .jpe, .jp2, .png, .pbm, .pgm, .ppm, .sr, .ras, .tiff, .tif
