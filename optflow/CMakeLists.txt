@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.5)
+project( flow )
+find_package( OpenCV REQUIRED )
+add_executable(flow opticalflow.cpp)
+set( CMAKE_CXX_FLAGS "--std=c++11")
+target_link_libraries( flow ${OpenCV_LIBS})

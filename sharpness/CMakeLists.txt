@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.5)
+project( sharpness )
+find_package( OpenCV REQUIRED )
+add_executable(sharpness sharpness.cpp)
+set( CMAKE_CXX_FLAGS "--std=c++11")
+target_link_libraries( sharpness ${OpenCV_LIBS})
