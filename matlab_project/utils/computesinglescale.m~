@@ -1,0 +1,189 @@
+function [uv, latentImg, ppIMF, invppIMF] = computesinglescale...
+    (src, ref, idxSrc, idxRef, maxIters, ...\
+    uv, intensityMappedRef, intensityMappedSrc, latentImg, ppIMF, invppIMF, ...\
+    dist_weight, maskClippedPixels, patchSize, uvPrior, ROI)
+
+
+if ~exist('ref', 'var') || ~exist('src', 'var')
+    error('src and ref must be provided to init_patchflow');    
+end 
+
+
+if ~(isa(src, 'uint8') || isa(src, 'double')) || ~(isa(ref, 'uint8') || isa(ref, 'double'))
+    error('src and ref must be image for the current version');
+end
+
+if ~isa(src, 'double')
+    src = im2double(src);    
+end
+
+if ~isa(ref, 'double')
+    ref = im2double(ref);    
+end
+
+if ~exist('maxIters', 'var')
+    maxIters = 3;
+end 
+    
+if ~exist('patchSize', 'var')
+    patchSize = 10;
+end 
+
+% Temporay Variables
+[h, w, ~] = size(src);
+[X,Y] = meshgrid(0:w-1, 0:h-1);
+Z(:,:,1) = int32(X);
+Z(:,:,2) = int32(Y);
+
+derivKernelX = [1,0,-1];
+derivKernelY = [1;0;-1];
+convFlag = 'valid';
+
+intensityMappedRefDx =  convn(padarray(intensityMappedRef,[0 2], 'circular','post'), derivKernelX, convFlag);
+intensityMappedRefDy =  convn(padarray(intensityMappedRef,[2 0], 'circular','post'), derivKernelY, convFlag);
+srcDx =  convn(padarray(src,[0 2], 'circular','post'), derivKernelX, convFlag);
+srcDy =  convn(padarray(src,[2 0], 'circular','post'), derivKernelY, convFlag);
+
+intensityMappedGreyRef = intensityMappedRef(:,:,1) + intensityMappedRef(:,:,2) + intensityMappedRef(:,:,3);
+srcGrey = (src(:,:,1) + src(:,:,2) + src(:,:,3))*0.3333;
+intensityMappedGreyRefDx =  convn(padarray(intensityMappedGreyRef,[0 2], 'circular','post'), derivKernelX, convFlag);
+intensityMappedGreyRefDy =  convn(padarray(intensityMappedGreyRef,[2 0], 'circular','post'), derivKernelY, convFlag);
+srcGreyDx =  convn(padarray(srcGrey,[0 2], 'circular','post'), derivKernelX, convFlag);
+srcGreyDy =  convn(padarray(srcGrey,[2 0], 'circular','post'), derivKernelY, convFlag);
+
+refGrey = (ref(:,:,1) + ref(:,:,2) + ref(:,:,3))*0.3333;
+refGreyDx =  convn(padarray(refGrey,[0 2], 'circular','post'), derivKernelX, convFlag);
+refGreyDy =  convn(padarray(refGrey,[2 0], 'circular','post'), derivKernelY, convFlag);
+
+fKernel    = ones(patchSize,patchSize);
+fKernelMag = conv2(ones(size(ref,1), size(ref,2)), fKernel,'same');
+
+for iter = 1 : maxIters
+    
+    % Update NNF/flow 
+    % doesnt give any masks of clipped pixels to nnmex:
+    fprintf("555555555555555555555555555\n");
+    ann = nnmex(im2uint8(latentImg),im2uint8(src),/* ROI,*/ 'cpu', patchSize, ...
+        [], [], [], [], [], 4, [], [], uvPrior);
+    uvPrior = ann;
+    uv = ann(:,:,1:2,1) - Z;
+    uv(:,:,1) = padarray(uv(1:end-patchSize,1:end-patchSize,1), ...
+        [patchSize, patchSize], 'replicate', 'post');
+    uv(:,:,2) = padarray(uv(1:end-patchSize,1:end-patchSize,2), ...
+        [patchSize, patchSize], 'replicate', 'post');
+    fprintf("666666666666666666666\n");
+    % Weight function indicates the confidence in mapping uv 
+    % see Eqn.(7) in the paper    
+    
+    % Not Clipped Pixels
+    distForward = double(ann(:,:,3));
+    distValid   = distForward(1:end-patchSize,1:end-patchSize);
+    sigma    = prctile(distValid(:), 75);
+    variance = 2*sigma^2; 
+    distForward     = circshift(distForward, [floor(patchSize/2) floor(patchSize/2)]);
+    weightUVForward = exp(-distForward.^2/variance);
+    weightUVForward = weightUVForward.*(weightUVForward > .6065);    
+    
+    % Clipped Pixels
+    distBackward = double(patchdist(ref, intensityMappedSrc, uv + Z,  [], patchSize));
+    distValid    = distBackward(1:end-patchSize,1:end-patchSize);
+    sigma    = prctile(distValid(:), 75);
+    variance = 2*sigma^2;
+    distBackward     = circshift(distBackward, [floor(patchSize/2) floor(patchSize/2)]);
+    weightUVBackward = exp(-distBackward.^2/variance);
+    weightUVBackward = weightUVBackward.*(weightUVBackward > .6065);
+    
+    % MY:
+    gradPatchSize = 10;  % patchSize;
+    matchField = ann(:,:,1:2);  % uv + Z;
+    srcIsDarker = idxRef > idxSrc;
+  %  distGrad = max(double(graddist(intensityMappedGreyRefDy, srcGreyDy, matchField, gradPatchSize, srcIsDarker)),...
+   %         double(graddist(intensityMappedGreyRefDx, srcGreyDx, matchField, gradPatchSize, srcIsDarker)));
+    %distGradValid = distGrad(1:end-gradPatchSize, 1:end-gradPatchSize);
+    % sigmaGrad = prctile(distGradValid(:), 75);
+    % varianceGrad = 2*sigmaGrad^2;
+    % distGrad = circshift(distGrad, [floor(gradPatchSize/2) floor(gradPatchSize/2)]);
+    % weightGrad = % exp(-distGrad.^2/varianceGrad);
+    % weightGrad = % 1 - weightGrad.*(weightGrad > .6065);
+    % weightGrad lies in [0 1]
+    % 1 is the largest dist and 0 is zero dist
+    % if the dist is zero, nothing changes in the original algorithm.
+    
+    weightSrc = ones(size(maskClippedPixels(:,:,1)));  % exp(distGrad);
+    weightRef = ones(size(maskClippedPixels(:,:,1)));  % exp(-distGrad);
+    
+    %clippedMaskCorrection = zeros(size(distGrad));
+    
+    %eps = 0.2;
+    %if srcIsDarker
+        % fprintf("\nSource is darker\n");
+    %    distGrad = max(0, distGrad);
+    %    weightSrc = exp(distGrad/3);
+    %else
+        % fprintf("\nRef is darker\n");
+    %    distGrad = min(0, distGrad);
+    %    weightRef = exp(-distGrad/3);
+    %end
+    %clippedMaskCorrection = distGrad > 0;
+    
+    %for i = 1 : 3
+    %    maskClippedPixels(:,:,i) = maskClippedPixels(:,:,i) & clippedMaskCorrection;
+    %end
+    
+    % MY END
+    
+    mask = double(maskClippedPixels(:,:,1));
+    weightUV = weightUVBackward.*mask + (1-mask).*weightUVForward;    
+    weightUV = weightUV.*dist_weight;
+       
+    % MOVED HERE BY ME FROM AFTER "COMPUTE WRAPED SRC
+    % Weight function indicates the quality of IMF
+    weightIMF = eps*double(maskClippedPixels) + 1*double(~maskClippedPixels);
+    for i = 1:3
+       %  weightUV(:,:,i) = weightUV(:,:,i).*weightSrc;
+         weightIMF(:,:,i) = weightIMF(:,:,i).*weightRef;
+    end
+    weightUV = weightUV.*weightSrc;
+    % MOVED BY ME END
+    
+    
+    % Compute warped src
+    % Only gives opt flow information to votemex:
+    warpedSrc = im2double(votemex(src, uv + Z,[],[],patchSize, ...
+        [],[],[],[],[], weightUV));
+    warpedSrcDx = im2double(votemex(srcDx, uv + Z,[],[],patchSize, ...
+        [],[],[],[],[], weightUV));
+    warpedSrcDy = im2double(votemex(srcDy, uv + Z,[],[],patchSize, ...
+        [],[],[],[],[], weightUV));
+
+    % Merging two weight functions
+    weightUV  = conv2(weightUV, fKernel,'same')./fKernelMag;
+    weightUV  = repmat(weightUV, [1 1 3]);
+    
+
+    weightSum = weightIMF + weightUV;    
+    weightIMF = weightIMF./weightSum;
+    weightUV  = weightUV./weightSum;
+    
+    % Update Latent Image, See Eqn.(5) in the paper
+
+    imshow(warpedSrc);
+    % pause;
+
+    tempLatentImg   = weightIMF.*intensityMappedRef + weightUV.*warpedSrc;
+    tempLatentImgDx = weightIMF.*intensityMappedRefDx + weightUV.*warpedSrcDx;
+    tempLatentImgDy = weightIMF.*intensityMappedRefDy + weightUV.*warpedSrcDy;    
+    
+    latentImg = solvescreenedpossion(tempLatentImg,tempLatentImgDx,tempLatentImgDy,.5);
+    idx = latentImg > 1;
+    latentImg(idx) = 1;
+    idx = latentImg < 0;
+    latentImg(idx) = 0;
+   
+end
+
+% Update IMF
+ppIMF    = computeimfIRLS(latentImg, ref);
+invppIMF = computeimfIRLS(ref, latentImg);
+
+end
