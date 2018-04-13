@@ -6,6 +6,22 @@
 using namespace std;
 using namespace cv;
 
+float calc_integral( Mat_<float>& sh1, Mat_<float>& sh2, int cy, int cx )
+{
+    int rad = 15;
+    float integral = 0;
+
+    for( int y = max(0, cy - rad); y <= min(cy + rad, sh1.rows-1); ++y )
+    {
+        for( int x = max(0, cx - rad); x <= min(cx + rad, sh1.cols-1); ++x )
+        {
+            integral += sh1.at<float>(y,x) - sh2.at<float>(y,x);
+        }
+    }
+    integral /= (4*rad*rad);
+    //cout << "integral = " << integral << endl;
+    return integral;
+}
 float calc_sharpness( Mat_<float>& img, int y, int x )
 {
     float s = 0;
@@ -67,6 +83,53 @@ float calc_sharpness_BREN( Mat_<float>& img, int y, int x )
     return s/(2*DIAM*DIAM);
 }
 
+void calc_beta_mask( Mat_<float>& im1, Mat_<float>& im2 )
+{
+    Mat_<float> sharpness1 = Mat::zeros(im1.size(), CV_32F);
+    Mat_<float> sharpness2 = Mat::zeros(im1.size(), CV_32F);
+    Mat_<uchar> beta = Mat::zeros(im1.size(), CV_16U);
+
+    const int RAD = 1;
+    const int DIAM = 2*RAD+1;
+    const int ADD_BORDER = RAD;
+    Size ksize(DIAM, DIAM);
+    
+    int step = 1;
+    float min = 10000;
+
+    for( int y = 0; y < im1.rows; y+=step )
+    {
+        for( int x = 0; x < im1.cols; x+=step )
+        {
+            float v1 = calc_sharpness_BREN(im1, y, x);
+            float v2 = calc_sharpness_BREN(im2, y, x);
+            sharpness1.at<float>(y,x) = v1;
+            sharpness2.at<float>(y,x) = v2;
+        }
+    }
+    namedWindow("Sharpness", WINDOW_AUTOSIZE);
+    imshow("Sharpness", sharpness1/255);
+    waitKey(0);
+
+    float eps = 10;
+
+    for ( int y = 0; y < im1.rows; y += step )
+    {
+        for( int x = 0; x < im1.cols; x += step )
+        {
+            beta.at<uchar>(y, x) = calc_integral(sharpness1, sharpness2, y, x) > eps ? 100 : 0;
+        }
+    }
+    cout << "Integrals calculated" << endl;
+    namedWindow("Beta mask", WINDOW_AUTOSIZE);
+    imshow("Beta mask", beta);
+    waitKey(0);
+    imwrite("betamask.jpg", beta);
+    return;
+
+}
+
+
 float calc_sharpness_GLVM( Mat_<float>& img, Mat_<float>& imgBlur, int y, int x )
 {//the algorithm of sharpness estimation called GLVM in a survey article
     float s = 0;
@@ -122,7 +185,7 @@ void visualize_sharpness( Mat_<float>& im1 )
     {
         for( int x = 0; x < im1.cols; x+=step )
         {
-            float v = calc_sharpness_GLVM(im1, imgBlur, y, x);
+            float v = calc_sharpness_BREN(im1, y, x);
             sharpness.at<float>(y,x) = v;
         }
     }
@@ -147,7 +210,9 @@ int main()
          resize(img1, img1, size);                                                   
          resize(img2, img2, size);
 
-         visualize_sharpness(img1);
+         //visualize_sharpness(img1);
+         //visualize_sharpness(img2);
+         calc_beta_mask(img1, img2);
          return 0;
 }
 
