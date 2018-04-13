@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.5)
+project( new_ref )
+find_package( OpenCV REQUIRED )
+add_executable(new_ref new_ref.cpp)
+set( CMAKE_CXX_FLAGS "--std=c++11")
+target_link_libraries( new_ref ${OpenCV_LIBS})

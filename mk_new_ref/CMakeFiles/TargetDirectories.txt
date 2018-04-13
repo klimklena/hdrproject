@@ -1,0 +1,3 @@
+/home/helen/Desktop/Lena/python_projects/mk_new_ref/CMakeFiles/edit_cache.dir
+/home/helen/Desktop/Lena/python_projects/mk_new_ref/CMakeFiles/rebuild_cache.dir
+/home/helen/Desktop/Lena/python_projects/mk_new_ref/CMakeFiles/new_ref.dir
